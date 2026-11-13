@@ -1,0 +1,28 @@
+﻿# build artifacts
+build/__pycache__/
+build/img/
+*.pyc
+__pycache__/
+
+# VST3 SDK and toolchain (third-party, not vendored)
+vst3/vst3sdk/
+vst3/build/
+vst3/*/build/
+vst3/**/*.slnx
+vst3/**/*.vcxproj*
+vst3/**/Release/
+vst3/**/Debug/
+
+# ngspice binaries
+tools/spice/Spice64/
+tools/spice/Spice64_dll/
+tools/spice/*.7z
+tools/spice/tmp/
+tools/spice/*.cir
+tools/spice/*.raw
+
+# temp
+*.tmp
+*.log
+host_stdout.txt
+host_stderr.txt
