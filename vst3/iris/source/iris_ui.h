@@ -78,7 +78,7 @@ public:
             FontFamily mono(L"Cascadia Mono");
             Font f3(&mono, 8.0f, FontStyleRegular, UnitPixel);
             SolidBrush muted(C(0x6b6558));
-            drawTracked(g, L"v1.8  \u00b7  ngspice-47 verified", f3, muted, 27.0f, (float)(h - 26), 0.6f);
+            drawTracked(g, L"v1.0  \u00b7  ngspice-47 verified", f3, muted, 27.0f, (float)(h - 26), 0.6f);
         }
     }
 
