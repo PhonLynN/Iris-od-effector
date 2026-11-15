@@ -1,4 +1,4 @@
-﻿# build artifacts
+# build artifacts
 build/__pycache__/
 build/img/
 *.pyc
@@ -26,3 +26,20 @@ tools/spice/*.raw
 *.log
 host_stdout.txt
 host_stderr.txt
+
+# release installer artifacts
+release/
+
+# local test/build outputs
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.wav
+work/installer/Iris.vst3.zip
+work/installer/SetupTest.exe
+work/installer/release-v1.0-backup/
+
+# generated design docs
+build/*.html
+build/*.pdf
