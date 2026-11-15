@@ -37,11 +37,12 @@ public:
     }
 
     int hitTest(int x, int y) const {
-        for (int i = 0; i < iris::kNumParams; ++i) {
+        for (int i = 0; i < 5; ++i) {
             const float dx = (float)x - kx[i];
             const float dy = (float)y - ky;
             if (dx * dx + dy * dy <= 44.0f * 44.0f) return i;
         }
+        if (x >= 470 && x <= 534 && y >= 70 && y <= 94) return 5;
         return -1;
     }
 
@@ -72,17 +73,42 @@ public:
             g.DrawLine(&hair, 26.0f, 66.0f, (float)(w - 26), 66.0f);
         }
 
-        for (int i = 0; i < iris::kNumParams; ++i) drawKnob(g, i);
+        for (int i = 0; i < 5; ++i) drawKnob(g, i);
+        drawSwitch(g);
 
         {
             FontFamily mono(L"Cascadia Mono");
             Font f3(&mono, 8.0f, FontStyleRegular, UnitPixel);
             SolidBrush muted(C(0x6b6558));
-            drawTracked(g, L"v1.0  \u00b7  ngspice-47 verified", f3, muted, 27.0f, (float)(h - 26), 0.6f);
+            drawTracked(g, L"v1.1  \u00b7  SPICE rev11", f3, muted, 27.0f, (float)(h - 26), 0.6f);
         }
     }
 
 private:
+    void drawSwitch(Graphics& g) {
+        const float x = 470.0f, y = 70.0f, w = 64.0f, h = 22.0f;
+        SolidBrush on(C(0x0f766e)), off(C(0xfffcf4));
+        SolidBrush inkOn(C(0xf7f4ed)), inkOff(C(0x16150f));
+        SolidBrush muted(C(0x6b6558));
+        Pen ring(C(0x16150f), 1.2f);
+
+        const bool isOn = v_[5] > 0.5f;
+        g.FillRectangle(isOn ? &on : &off, x, y, w, h);
+        g.DrawRectangle(&ring, x, y, w, h);
+
+        FontFamily mono(L"Cascadia Mono");
+        Font f(&mono, 8.0f, FontStyleRegular, UnitPixel);
+        Font fl(&mono, 7.0f, FontStyleRegular, UnitPixel);
+        drawTracked(g, L"BRITISH", fl, muted, x, y - 13.0f, 1.0f);
+
+        const wchar_t* txt = isOn ? L"ON" : L"OFF";
+        RectF tb;
+        g.MeasureString(txt, (INT)wcslen(txt), &f, PointF(0, 0), &tb);
+        g.DrawString(txt, (INT)wcslen(txt), &f,
+                     PointF(x + (w - tb.Width) * 0.5f, y + (h - tb.Height) * 0.5f),
+                     isOn ? &inkOn : &inkOff);
+    }
+
     void drawKnob(Graphics& g, int i) {
         const float cx = kx[i], cy = ky, r = 31.0f;
         SolidBrush paper(C(0xf7f4ed));
@@ -141,7 +167,12 @@ private:
     std::wstring readout(int i) const {
         wchar_t buf[64];
         switch (i) {
-        case 0: std::swprintf(buf, 64, L"%+.1f dB", iris::gainDb(v_[0], v_[1])); break;
+        case 0: {
+            const double gdb = (v_[5] > 0.5f) ? iris::gainDbBritish(v_[0])
+                                               : iris::gainDb(v_[0], v_[1]);
+            std::swprintf(buf, 64, L"%+.1f dB", gdb);
+            break;
+        }
         case 1: {
             const double f = iris::lowcutHz(v_[1]);
             if (f >= 100.0) std::swprintf(buf, 64, L"%d Hz", (int)(f + 0.5));
@@ -150,6 +181,7 @@ private:
         }
         case 2: std::swprintf(buf, 64, L"%+.1f dB", iris::toneShelfDb(v_[2])); break;
         case 3: std::swprintf(buf, 64, L"%.0f %%", iris::blendPct(v_[3])); break;
+        case 5: return v_[5] > 0.5f ? std::wstring(L"ON") : std::wstring(L"OFF");
         default: {
             const double d = iris::volumeDb(v_[4]);
             if (d < -59.0) std::swprintf(buf, 64, L"-inf");
@@ -174,8 +206,8 @@ private:
         return cur - x - (n ? track : 0.0f);
     }
 
-    float v_[iris::kNumParams] = {0.55f, 0.15f, 0.85f, 0.60f, 0.85f};
-    static constexpr float kx[iris::kNumParams] = {78.0f, 180.0f, 282.0f, 384.0f, 486.0f};
+    float v_[iris::kNumParams] = {0.55f, 0.15f, 0.85f, 0.60f, 0.85f, 0.0f};
+    static constexpr float kx[iris::kNumParams] = {78.0f, 180.0f, 282.0f, 384.0f, 486.0f, 0.0f};
     static constexpr float ky = 158.0f;
 };
 

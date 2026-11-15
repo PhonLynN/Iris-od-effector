@@ -20,7 +20,8 @@ enum ParamId : int {
     kTone = 2,    // RV3：削波后音调（只切）
     kBlend = 3,   // MIX：clean 支路比例
     kVolume = 4,  // RV4：输出音量
-    kNumParams = 5
+    kBritish = 5, // 切换 JFET 英式支路
+    kNumParams = 6
 };
 
 inline constexpr double kPi = 3.14159265358979323846;
@@ -42,6 +43,14 @@ inline constexpr double kR13 = 6800.0;      // R13：音调支路（v1.1 起改�
 inline constexpr double kC4 = 1.5e-9;       // C4：音调电容
 inline constexpr double kRv3Max = 100e3;    // RV3
 inline constexpr double kPostLpHz = 9000.0; // 削波后固定低通（让 TONE 管脆度）
+// ---- 英式 JFET 支路（rev11 硬件基线） ---------------------------------------
+inline constexpr double kRgBritish = 3300.0;    // U1B Rg1：10k → 3.3k
+inline constexpr double kRserBritish = 10e3;    // R16：4.7k → 10k
+inline constexpr double kPostLpBritish = 5400.0;// 二阶 Sallen-Key
+inline constexpr double kLowShelfHz = 300.0;    // 随 gain 的低架
+inline constexpr double kLowShelfMaxDb = 4.0;   // gain=1 时 -4 dB
+inline constexpr double kMakeupBritish = 4.0;  // JFET 支路补偿；在 tanh 前，属于已定音色
+inline constexpr double kMakeupLight = 1.0;     // 轻过载支路：不加 makeup
 
 inline constexpr double kInputGain = 1.0 + kRf1 / kRin1;         // 2.0
 inline constexpr double kStage2Gain = 2.0;                       // 第二级 ×2
@@ -55,6 +64,10 @@ inline double uiValue(double v) {
     return std::min(1.0, std::max(0.0, v));
 }
 inline double rv1FromUi(double g) { return 1.0 + kRv1Max * uiValue(g); }
+// 英式支路：A100K 的 g^1.5 等效（SPICE 扫描出的折中）
+inline double rv1FromUiBritish(double g) {
+    return 1.0 + kRv1Max * std::pow(uiValue(g), 1.5);
+}
 // LOWCUT 拧大 = 转折更高 = 切得更多 → RV2 变小（电位器反接使用）
 inline double rv2FromUi(double l) { return 1.0 + kRv2Max * (1.0 - uiValue(l)); }
 // TONE 用 C 型（反对数）：拧大 → 串联电阻变小 → 转折上移（更亮）
@@ -66,7 +79,27 @@ inline double volumeFromUi(double v) { const double x = uiValue(v); return x * x
 inline double gainLinear(double g, double /*lowcut unused*/ = 0.0) {
     return kFixedGain * (1.0 + rv1FromUi(g) / kRg);
 }
-inline double gainDb(double g, double l = 0.0) { return 20.0 * std::log10(gainLinear(g, l)); }
+// UI 读数用实测值，不再用理想小信号公式（v1.0 实测 40 mV：
+// 0/25/50/75/100% = +7.5/+20.5/+24.7/+26.5/+27.2 dB）
+inline double interpDb5(const double (&db)[5], double x) {
+    const double u = x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x) * 4.0;
+    const int i = (int)u;
+    if (i >= 4) return db[4];
+    return db[i] + (db[i + 1] - db[i]) * (u - (double)i);
+}
+inline double gainDb(double g, double /*l*/ = 0.0) {
+    static const double kDb[5] = {7.5, 20.5, 24.7, 26.5, 27.2};
+    return interpDb5(kDb, uiValue(g));
+}
+inline double gainLinearBritish(double g) {
+    return kFixedGain * (1.0 + rv1FromUiBritish(g) / kRgBritish);
+}
+inline double gainDbBritish(double g) {
+    static const double kDb[5] = {13.27, 18.47, 24.28, 28.51, 31.76};
+    return interpDb5(kDb, uiValue(g));
+}
+// 全局输出校准：避免 gain/volume 拉满时接近 0 dBFS
+inline constexpr double kOutTrim = 0.30; // -10.5 dB
 inline double lowcutHz(double l) { return 1.0 / (2.0 * kPi * (kRhpfMin + rv2FromUi(l)) * kC2); }
 inline double toneHz(double t) { return 1.0 / (2.0 * kPi * (kR13 + rv3FromUi(t)) * kC4); }
 // v1.1：TONE = 2.2kHz 高架（high shelf），从 -14dB（暖/散）到 +6dB（硬/脆）
@@ -89,6 +122,7 @@ inline const ParamMeta& meta(int i) {
         {"tone", "TONE", 0.85f, "dB"},
         {"blend", "BLEND", 0.60f, "%"},
         {"volume", "VOLUME", 0.85f, "dB"},
+        {"british", "BRITISH", 0.0f, ""},
     };
     return m[i < 0 ? 0 : (i >= kNumParams ? kNumParams - 1 : i)];
 }

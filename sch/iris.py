@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris R v1.8 —— 透明过载：输入×2 → 无源低切 → 2kHz 预提升
+"""Iris R v1.0 —— 透明过载：输入×2 → 无源低切 → 2kHz 预提升
    → 双级对称削波（2×1N4148/侧 + 4.7k 软膝）→ 干湿混合 → TONE 高切 → VOLUME
    电源：9V 单入，ICL7660 电荷泵出 ±9V（运放 ±7V 摆幅）"""
 
@@ -66,7 +66,7 @@ def build():
     s = Sch()
 
     # ---------------- 标题 ----------------
-    s.text(60, 56, "Iris R  v1.8  —  2026", size=17, anchor="start", cls="title")
+    s.text(60, 56, "Iris R  v1.0  —  2026", size=17, anchor="start", cls="title")
     s.text(60, 78, "透明过载：输入 ×2 → 无源低切 → 2kHz +7dB 预提升 → 双级对称削波（1N4148 ×8）"
                    " → 干湿混合 → TONE 高切 → VOLUME", size=9.2, anchor="start", cls="sub")
     s.text(60, 104, "① 输入 ×2  ② LOWCUT 29–312Hz  ③ 预提升 2kHz  ④ 削波级 1  ⑤ 削波级 2  "

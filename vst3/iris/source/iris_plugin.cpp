@@ -196,6 +196,16 @@ private:
             SetFocus(h);
             const int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
             const int idx = self->panel_.hitTest(x, y);
+            if (idx == iris::kBritish) {
+                const float nv = self->panel_.value(idx) > 0.5f ? 0.0f : 1.0f;
+                self->ctrl_->beginEdit((ParamID)idx);
+                self->panel_.setValue(idx, nv);
+                self->ctrl_->setParamNormalized((ParamID)idx, nv);
+                self->ctrl_->performEdit((ParamID)idx, nv);
+                self->ctrl_->endEdit((ParamID)idx);
+                self->invalidate();
+                return 0;
+            }
             self->active_ = idx;
             self->dragY_ = y;
             if (idx >= 0) { SetCapture(h); self->ctrl_->beginEdit((ParamID)idx); }
@@ -222,7 +232,7 @@ private:
         case WM_LBUTTONDBLCLK: {
             if (!self) break;
             const int idx = self->panel_.hitTest(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
-            if (idx >= 0) {
+            if (idx >= 0 && idx != iris::kBritish) {
                 const float def = iris::meta(idx).def;
                 self->adjust(idx, def - self->panel_.value(idx));
             }
@@ -349,7 +359,7 @@ public:
                     ParamValue v = 0;
                     q->getPoint(0, sampleOffset, v);
                     const ParamID id = q->getParameterId();
-                    if (id < iris::kNumParams) norm_[id] = (float)iris::uiValue(v);
+                    if (id < iris::kNumParams) norm_[id] = (float)v;
                 }
             }
         }
@@ -396,7 +406,9 @@ public:
         const double v = valueNormalized < 0 ? 0 : (valueNormalized > 1 ? 1 : valueNormalized);
         switch (i) {
         case iris::kGain:
-            std::snprintf(buf, sizeof(buf), "%+.1f dB", iris::gainDb(v, norm_[iris::kLowcut]));
+            std::snprintf(buf, sizeof(buf), "%+.1f dB",
+                          norm_[iris::kBritish] > 0.5f ? iris::gainDbBritish(v)
+                                                       : iris::gainDb(v, norm_[iris::kLowcut]));
             break;
         case iris::kLowcut:
             std::snprintf(buf, sizeof(buf), "%.0f Hz", iris::lowcutHz(v));
@@ -406,6 +418,9 @@ public:
             break;
         case iris::kBlend:
             std::snprintf(buf, sizeof(buf), "%.0f %%", iris::blendPct(v));
+            break;
+        case iris::kBritish:
+            std::snprintf(buf, sizeof(buf), "%s", v > 0.5 ? "ON" : "OFF");
             break;
         default:
             std::snprintf(buf, sizeof(buf), "%+.1f dB", iris::volumeDb(v));
@@ -421,6 +436,10 @@ public:
         const double hi = iris::gainDb(1.0, norm_[iris::kLowcut]);
         double n = 0.5;
         switch ((int)tag) {
+        case iris::kBritish:
+            valueNormalized = (string && (string[0] == 'O' || string[0] == 'o' ||
+                                          string[0] == '1')) ? 1.0 : 0.0;
+            return kResultOk;
         case iris::kGain: n = (x - lo) / (hi - lo + 1e-9); break;
         case iris::kLowcut: n = 1.0 - (x - 27.0) / (175.0 - 27.0); break;
         case iris::kTone: n = (x + 12.0) / 17.0; break;
@@ -445,12 +464,13 @@ public:
 
 private:
     void applyParams() {
+        dsp_.setBritish(norm_[iris::kBritish] > 0.5f);
         dsp_.setTargets(norm_[iris::kGain], norm_[iris::kLowcut], norm_[iris::kTone], norm_[iris::kVolume]);
         dsp_.setBlendAmount(norm_[iris::kBlend]);
     }
 
     iris::IrisDsp dsp_;
-    float norm_[iris::kNumParams] = {0.55f, 0.15f, 0.85f, 0.60f, 0.85f};
+    float norm_[iris::kNumParams] = {0.55f, 0.15f, 0.85f, 0.60f, 0.85f, 0.0f};
 };
 
 // ---------- 工厂注册 ----------------------------------------------------

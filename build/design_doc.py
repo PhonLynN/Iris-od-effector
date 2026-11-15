@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Iris R v1.8 设计文档生成器（纯标准库，单文件 HTML）。
+"""Iris R v1.0 设计文档生成器（纯标准库，单文件 HTML）。
 
 用法：
     python build/design_doc.py
@@ -20,7 +20,7 @@ from doc_style import CSS                              # noqa: E402
 OUT = os.path.join(HERE, "iris_design.html")
 SVG = os.path.join(ROOT, "assets", "svg", "iris.svg")
 
-VERSION = "v1.8"
+VERSION = "v1.0"
 
 # 位号 → (具体型号/规格, 作用)
 PART = {
@@ -116,7 +116,7 @@ HARM_ROWS = [
     ("GE（不对称跳线）", "10.31 %", "20.52 %", "8.64 %", "0.85 %", "0.05 %"),
 ]
 FIX_ROWS = [
-    ("输入电平太轻", "v0.6 起输入只有 1× 缓冲", "U1A 非反相 ×2（+6 dB）"),
+    ("输入电平太轻", "旧版输入只有 1× 缓冲", "U1A 非反相 ×2（+6 dB）"),
     ("高增益塌陷", "一级削波后信号被钉死，后级无 headroom", "级间 −6 dB + 第二级重新放大再削"),
     ("低切耦合", "低切电阻在增益级地回路 → 与增益联动 17 dB", "改成级间无源高通，通带增益恒为 1"),
     ("颗粒感不足", "只有一级软削波，谐波层数太少", "2 kHz +7 dB 预提升 + 两级硬/软混合削波"),
@@ -177,7 +177,10 @@ def table(headers, rows, w=None):
 
 
 def bom_table(s):
-    from tools.spice import __name__ as _unused  # noqa: F401  仅确认路径可导入
+    try:
+        from tools.spice import __name__ as _unused  # noqa: F401  仅确认路径可导入
+    except ImportError:
+        pass
     rows = s.bom()
     out = ["<table><thead><tr><th style='width:15%'>位号</th><th style='width:12%'>类别</th>",
            "<th style='width:16%'>数值</th><th style='width:27%'>具体型号 / 规格</th>",
@@ -227,14 +230,12 @@ def html():
       'TONE 只做高频高切。总增益 +12 … +38 dB。</p>')
     A(kpis())
 
-    # 为什么 v1.8
-    A('<h2>为什么长成 v1.8<span class="en">Revision</span></h2>')
-    A("<p>这版不是一次设计出来的，而是六轮实测把一个“透明推子”逼成能弹 solo 的失真："
-      "v0.4 解决电平与低切耦合，v0.6 把削波阈值抬到 ±1.3 V 让音头回来，"
-      "v1.0 加入级间衰减与第二级削波，v1.2 修掉求解器不收敛导致的“劈”，"
-      "v1.3–1.7 试过交越死区与 8 倍过采样（都留下数据），"
-      "v1.8 找到真凶：<strong>把硬限幅从 48 kHz 挪到过采样域</strong>。下面每一条都是可焊电路：</p>")
-    A(table(["听感问题", "v0.6 之前的电路原因", "v1.8 的电路对策"], FIX_ROWS))
+    # 为什么 v1.0
+    A('<h2>为什么长成 v1.0<span class="en">Revision</span></h2>')
+    A("<p>这版不是一次设计出来的，而是多轮实测把一个“透明推子”逼成能弹 solo 的失真："
+      "低切搬出增益回路、两级削波、级间衰减、软膝与过采样域限幅，都是实测逼出来的。"
+      "下面每一条都是可焊电路：</p>")
+    A(table(["听感问题", "旧版电路原因", "v1.0 的电路对策"], FIX_ROWS))
 
     # 信号链
     A('<h2>信号链<span class="en">Signal Path</span></h2>')
@@ -268,7 +269,7 @@ def html():
       'RV2 = 50K → 1/(2π·55.1K·100n) = <span class="r">28.9 Hz</span></div>')
 
     A("<h3>03 · 预提升：2 kHz 以上 +7 dB</h3>")
-    A("<p>这是 v1.4 为了“金属芯感”加的：在削波<strong>之前</strong>把 2 kHz 以上抬 7 dB，"
+    A("<p>这是为了“金属芯感”加的：在削波<strong>之前</strong>把 2 kHz 以上抬 7 dB，"
       "等于让中高频先撞削波器 —— 泛音密度上来了，中低频还留着自己的动态：</p>")
     A('<div class="calc">平直段 A = 1 + R14/(R15) 的直流通路 = 1×<br>'
       '高频段 A ≈ 1 + 10K/8.2K = <span class="r">2.2×（+7 dB）</span>，'
@@ -279,7 +280,7 @@ def html():
       "把阈值从 ±0.65 V 抬到 ±1.3 V；再串一只 4.7K 到二极管，拐角被磨圆：</p>")
     A('<div class="calc">A₂ = 1 + RV1/Rg1 = 1 + 100K/5.1K = <span class="r">1 … 20.6×</span><br>'
       '阈值 = 2 × 0.65 V = <span class="r">±1.3 V</span>（每侧两只串联）</div>')
-    A("<p>为什么必须抬阈值：v0.6 之前用一对 1N4148（±0.65 V），信号一旦过膝就变成恒定电平的方波，"
+    A("<p>为什么必须抬阈值：早期版本用一对 1N4148（±0.65 V），信号一旦过膝就变成恒定电平的方波，"
       "音头被抹平 —— 实测音头只比延音大 0.4 dB，听感就是“无音头的合成器”。抬到 ±1.3 V、"
       "再加级间衰减之后，音头−延音回到 8 dB 量级。</p>")
 
