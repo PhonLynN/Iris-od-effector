@@ -1,7 +1,8 @@
-// Iris R — DSP core (v1.1, light + British JFET branch)
-// Light:  v1.0 的透明过载路径（保留原行为）。
-// British: JFET Fetzer 级 -> pad -> U1B/U1C（U1C Ge 非对称）-> 5.4k LPF
-//          -> TONE -> 300 Hz / -4 dB low shelf -> LEVEL。
+// Iris R — DSP core (v1.2, Light-only)
+// Light: v1.0 的透明过载路径（保留原行为）。
+// U1A ×2 -> 7.2 Hz HPF -> 低切 C2/(RV2+R4) -> preE 2 kHz +7 dB -> air
+// -> U1B 2×Si(D1/D2) 削波 -> 低频 clean blend -> U1C 2×Si(D4b/D4c) 削波
+// -> 9 kHz 一阶 LPF -> 恢复级 -> TONE 高架 -> 300 Hz 低架 -> VOLUME。
 // 4x oversampling；decimator 每个 OS 采样都 tick 一次（rev9 修正）。
 #pragma once
 #ifndef Iris_DSP_H
@@ -29,12 +30,9 @@ inline void enableFlushToZero() {
 struct Diode {
     double isSi = 2.52e-9;
     double nVtSi = 1.752 * 0.025852;
-    double isGe = 1.0e-7;
-    double nVtGe = 0.0326;
 };
 
-inline void diodeNet(double ud, const Diode& d, bool geOn, double& i, double& g,
-                     double /*nUp*/, double /*nDown*/) {
+inline void diodeNet(double ud, const Diode& d, double& i, double& g) {
     constexpr double kMax = 30.0;
     const double nSide = (ud < 0.0) ? 3.0 : 4.0;
     double a = ud / (nSide * d.nVtSi);
@@ -43,21 +41,15 @@ inline void diodeNet(double ud, const Diode& d, bool geOn, double& i, double& g,
     const double e = std::exp(a), em = std::exp(-a);
     i = d.isSi * (e - em);
     g = d.isSi * (e + em) / (nSide * d.nVtSi);
-    if (geOn && ud > 0.0) {
-        double b = ud / d.nVtGe;
-        if (b > kMax) b = kMax;
-        const double eg = std::exp(b);
-        i += d.isGe * (eg - 1.0);
-        g += d.isGe * eg / d.nVtGe;
-    }
 }
 
-inline void clipBranch(double u, const Diode& d, bool geOn, double rser,
-                       double& i, double& gi, double nUp = 2.0, double nDown = 2.0) {
+// 2×Si 串联支路（D1/D2 与 D4b/D4c 均为对称两串）
+inline void clipBranch(double u, const Diode& d, double rser,
+                       double& i, double& gi) {
     double ud = (u > 0.6 ? 0.6 : (u < -0.6 ? -0.6 : u * 0.5));
     double i1 = 0.0, g1 = 0.0;
     for (int it = 0; it < 12; ++it) {
-        diodeNet(ud, d, geOn, i1, g1, nUp, nDown);
+        diodeNet(ud, d, i1, g1);
         const double f = i1 - (u - ud) / rser;
         const double fp = g1 + 1.0 / rser;
         double du = -f / fp;
@@ -66,7 +58,7 @@ inline void clipBranch(double u, const Diode& d, bool geOn, double rser,
         ud += du;
         if (std::fabs(du) < 1e-8) break;
     }
-    diodeNet(ud, d, geOn, i, g1, nUp, nDown);
+    diodeNet(ud, d, i, g1);
     gi = g1 / (1.0 + rser * g1);
 }
 
@@ -174,7 +166,7 @@ public:
             uPrev_[c] = 0.0; u2Prev_[c] = 0.0;
             lpPostLight_[c] = 0.0; bassLp_[c] = 0.0; airHp_[c] = 0.0;
             lastIn_[c] = 0.0;
-            preE_[c].reset(); tone_[c].reset(); low_[c].reset(); post_[c].reset();
+            preE_[c].reset(); tone_[c].reset(); low_[c].reset();
             dec_[c].reset();
         }
     }
@@ -193,23 +185,12 @@ public:
         const double x = (b < 0.0 ? 0.0 : (b > 1.0 ? 1.0 : b));
         blend_ = 0.5 * x;
     }
-    void setBritish(bool on) {
-        if (british_ != on) {
-            british_ = on;
-            mode_ = true;
-            reset();
-        }
-    }
+    // SW3：SHELF / FLAT；只改低架系数，不重置其他状态
+    void setShelf(bool on) { shelf_ = on; }
 
-    // 兼容旧 selfcheck / 调试接口
-    void setPreLp(bool on) { preLp_ = on; }
-    void setClipGe(bool on) { clipGe_ = on; }
-    void setBrightCap(double farads) { brightCap_ = farads; }
+    // 调试接口
     void setRecoveryGain(double g) { recGain_ = g; }
     void setCleanBlend(double a) { blend_ = a; }
-    void setTwoStage(bool on, double div = 0.35, double a2 = 3.0) {
-        twoStage_ = on; div_ = div; rf2_ = (a2 - 1.0) * rg2_;
-    }
 
     void process(float** in, float** out, int n, int channels) {
         enableFlushToZero();
@@ -247,9 +228,9 @@ private:
     }
 
     void updateFilters() {
-        const double preDb = british_ ? 3.0 : 7.0;
-        const double toneDb = british_ ? (-10.0 + 15.0 * sm_[2]) : (-12.0 + 17.0 * sm_[2]);
-        const double lowDb = british_ ? -kLowShelfMaxDb * sm_[0] : 0.0;
+        const double preDb = 7.0;
+        const double toneDb = -12.0 + 17.0 * sm_[2];
+        const double lowDb = shelf_ ? -kLowShelfMaxDb * sm_[0] : 0.0;
 
         if (mode_ || std::fabs(preDb - preDb_) > 0.01) {
             for (int c = 0; c < 2; ++c) preE_[c].peaking(osFs_, 2000.0, preDb, 0.9);
@@ -263,17 +244,14 @@ private:
             for (int c = 0; c < 2; ++c) low_[c].lowShelf(osFs_, kLowShelfHz, lowDb, 0.707);
             lowDb_ = lowDb;
         }
-        if (mode_) {
-            for (int c = 0; c < 2; ++c) post_[c].lowpass(osFs_, kPostLpBritish, 0.707);
-            mode_ = false;
-        }
+        mode_ = false;
     }
 
     double processChannel(double x, int c) {
         for (int i = 0; i < 4; ++i) sm_[i] += aSm_ * (tgt_[i] - sm_[i]);
         updateFilters();
 
-        const double rv1 = british_ ? rv1FromUiBritish(sm_[0]) : rv1FromUi(sm_[0]);
+        const double rv1 = rv1FromUi(sm_[0]);
         const double rv2 = rv2FromUi(sm_[1]);
         const double lvl = volumeFromUi(sm_[3]);
 
@@ -287,7 +265,7 @@ private:
         }
         lastIn_[c] = x;
 
-        double y = dout / kInVolts * (british_ ? kMakeupBritish : kMakeupLight);
+        double y = dout / kInVolts * kMakeupLight;
         y = kOutLimit * std::tanh(y / kOutLimit);
         if (y > 0.995) y = 0.995;
         if (y < -0.995) y = -0.995;
@@ -314,26 +292,20 @@ private:
         hpfPrev_[c] = v;
         v = clampRail(v);
 
-        // preE：light 2k +7；British 2k +3
+        // preE：2k +7 dB
         v = preE_[c].tick(v);
 
-        if (british_) {
-            // JFET Fetzer 级：非对称软饱和 + 16 dB pad
-            const double bias = 0.2;
-            v = 0.155 * (std::tanh(2.4 * (v + bias)) - std::tanh(2.4 * bias));
-        } else {
-            // light 的空气感补偿
-            airHp_[c] += aAir_ * (v - airHp_[c]);
-            v = v + 0.35 * (v - airHp_[c]);
-        }
+        // air 的空气感补偿
+        airHp_[c] += aAir_ * (v - airHp_[c]);
+        v = v + 0.35 * (v - airHp_[c]);
 
-        // U1B：增益级 + 反馈削波
-        const double rg = british_ ? kRgBritish : kRg;
-        const double rser = british_ ? kRserBritish : kRser;
+        // U1B：增益级 + 反馈削波（D1/D2 2×Si）
+        const double rg = kRg;
+        const double rser = kRser;
         double u = uPrev_[c];
         for (int it = 0; it < 24; ++it) {
             double id = 0.0, gd = 0.0;
-            clipBranch(u, dio_, false, rser, id, gd, 2.0, 2.0);
+            clipBranch(u, dio_, rser, id, gd);
             const double f = u / rv1 + id - v / rg;
             const double fp = 1.0 / rv1 + gd;
             double du = -f / fp;
@@ -348,18 +320,16 @@ private:
         dbgU_ = u;
         dbgV_ = v;
 
-        // light 的低频 clean blend（British 不加）
-        if (!british_) {
-            bassLp_[c] += aBass_ * (v1 - bassLp_[c]);
-            v3 = clampRail(v3 + 0.85 * bassLp_[c]);
-        }
+        // 低频 clean blend
+        bassLp_[c] += aBass_ * (v1 - bassLp_[c]);
+        v3 = clampRail(v3 + 0.85 * bassLp_[c]);
 
-        // U1C：第二级削波；British 用 Ge 非对称
+        // U1C：第二级削波（D4b/D4c 2×Si）
         const double v2 = div_ * v3;
         double u2 = u2Prev_[c];
         for (int it = 0; it < 24; ++it) {
             double id2 = 0.0, gd2 = 0.0;
-            clipBranch(u2, dio_, british_, kRser2, id2, gd2, 2.0, 2.0);
+            clipBranch(u2, dio_, kRser2, id2, gd2);
             const double f2 = u2 / rf2_ + id2 - v2 / rg2_;
             const double fp2 = 1.0 / rf2_ + gd2;
             double du2 = -f2 / fp2;
@@ -373,15 +343,11 @@ private:
         v3 = v2 + u2;
         dbgV3_ = v3;
 
-        // 后置低通：British 5.4k 二阶；light 9k 一阶
-        if (british_) {
-            v3 = post_[c].tick(v3);
-        } else {
-            lpPostLight_[c] += aPostLight_ * (v3 - lpPostLight_[c]);
-            v3 = lpPostLight_[c];
-        }
+        // 后置低通：9k 一阶
+        lpPostLight_[c] += aPostLight_ * (v3 - lpPostLight_[c]);
+        v3 = lpPostLight_[c];
 
-        // 恢复级 ×1.5 + clean blend
+        // 恢复级 ×3 + clean blend
         double t1 = clampRail(recGain_ * v3);
         if (blend_ > 0.0) {
             // clean 取 preE 之前，保持 v1.0 轻过载的干声路径
@@ -413,7 +379,7 @@ private:
     double aIn_ = 0.0, aSm_ = 0.0, aPostLight_ = 0.0, aBass_ = 0.0, aAir_ = 0.0;
     double kC2_ = 0.0, kGBias_ = 0.0;
     Diode dio_;
-    Biquad preE_[2], tone_[2], low_[2], post_[2];
+    Biquad preE_[2], tone_[2], low_[2];
     Decimator dec_[2];
 
     double lpIn_[2] = {0, 0}, inPrev_[2] = {0, 0}, hpfPrev_[2] = {0, 0};
@@ -424,19 +390,14 @@ private:
     float tgt_[4] = {0.55f, 0.15f, 0.85f, 0.85f};
     double sm_[4] = {0.55, 0.15, 0.85, 0.85};
     bool primed_ = false;
-    bool british_ = false;
+    bool shelf_ = true;
     bool mode_ = true;
-    bool preLp_ = false;
-    bool clipGe_ = false;
-    bool twoStage_ = true;
     double blend_ = 0.30;
     double recGain_ = kRecoveryGain;
-    double brightCap_ = 0.0;
     double div_ = 0.35, rf2_ = 20e3, rg2_ = 10e3;
     double preDb_ = -99.0, toneDb_ = -99.0, lowDb_ = 99.0;
     double dbgU_ = 0.0, dbgV_ = 0.0, dbgV3_ = 0.0, dbgT1_ = 0.0, dbgY_ = 0.0;
 
-    static constexpr double kRser = 4700.0;
     static constexpr double kRser2 = 10e3;
 };
 
